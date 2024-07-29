@@ -1,12 +1,13 @@
 import smtplib
 import requests
 import os
-import json
+import random
 from email.mime.text import MIMEText
 from email.mime.image import MIMEImage
 from email.mime.multipart import MIMEMultipart
 import datetime
 import matplotlib.pyplot as plt
+
 
 def fetch_credentials():
     with open("credentials.txt", "r") as file:
@@ -14,7 +15,7 @@ def fetch_credentials():
 
     return [creds[0].strip(), creds[1].strip()]
 
-def fetch_receiver():
+def fetch_recipient():
     with open("recipient.txt", "r") as file:
         to_address = file.readline()
         
@@ -34,7 +35,7 @@ def get_weather_report():
     response = requests.get(url)
     
     # convert to json
-    weather_json = json.loads(response.text)
+    weather_json = response.json()
 
     city = weather_json['location']['name']
     region = weather_json['location']['region']
@@ -89,18 +90,65 @@ def get_weather_report():
     
 
     # Save the plot as an image file (PNG format by default)
-    plt.savefig('images/' + current_day + '_hourlytemps.png') 
+    plt.savefig('images/forecasts/' + current_day + '_hourlytemps.png') 
     
     return [current_day, res]
+
+def get_news_articles(category, num_articles=3):
+    # fetch API key to call news API
+    with open("news_key.txt", "r") as file:
+        api_key = file.readline()
+    
+    # call API
+    url = "https://newsapi.org/v2/top-headlines?country=us&category=" + category + "&apiKey=" + api_key
+    response = requests.get(url)
+    all_articles = response.json()['articles']
+    
+    select_articles = []
+    
+    for i in range(num_articles):
+        index = random.randint(0, len(all_articles) - 1)
+        select_articles.append(all_articles.pop(index))
+    
+    res = "<h3>News from the " + category[0].upper() + category[1:len(category)] + " Sector<h3>\n"
+    res += "<h4>\n<ul>\n"
+    
+    for article in select_articles:
+        res += '<li><a href="' + article['url'] +'">' + article['title'] + '</a>\n'
+        
+        if article['description'] != None:
+            res += "<ul>\n<li>" + article['description'] + "</li>\n</ul>\n"
+        
+        res += "</li>\n"
+    
+    res += "</ul>\n</h4>\n"
+    
+    return res
+        
+
+def get_news_report():
+    # get top business news
+    business_news = get_news_articles(category="business")
+     
+    # get top sports news
+    sports_news = get_news_articles(category="sports")
+    
+    # get top tech news
+    tech_news = get_news_articles(category="technology")
+    
+    return business_news + "\n" + tech_news + "\n" + sports_news
+    
     
 def main():
     today, weather_report = get_weather_report()
+    
+    news_report = get_news_report()
     
     # fetch credentials for the sender email from credentials.txt
     origin_email, origin_pass = fetch_credentials()
     
     # fetch email address to send to (my email) from recipient.txt
-    receive_email = fetch_receiver()
+    receive_email = fetch_recipient()
    
     # create SMTP session
     s = smtplib.SMTP('smtp-mail.outlook.com', 587)
@@ -124,14 +172,17 @@ def main():
         <html>
         <body>
         <center>
-            <img src="https://m.media-amazon.com/images/I/31x+q3aNVKL._AC_.jpg">
+            <img src="cid:batmanlogo">
             
-            <h4>Greetings Master Wayne,
+            <h2>Greetings Master Wayne,</h2>
+            <h3>\n
         """+ weather_report + """
-            </h4>
+            </h3>
             
-            <img src="cid:weatherforecast">
+            <img src="cid:weatherforecast">\n
             </center>
+            
+            <h3>And here is your morning news...\n""" + news_report + """
         </body>
         </html>"""
     
@@ -140,11 +191,17 @@ def main():
     message.attach(part1)
     message.attach(part2)
     
-    image_file = open('images/' + today + '_hourlytemps.png', 'rb')
+    # add batman logo to message
+    image_file = open('images/assets/batman_logo.png', 'rb')
+    batsymbol_image = MIMEImage(image_file.read())
+    image_file.close()
+    batsymbol_image.add_header('Content-ID', '<batmanlogo>')
+    message.attach(batsymbol_image)
+    
+    # add forecast graph to message
+    image_file = open('images/forecasts/' + today + '_hourlytemps.png', 'rb')
     forecast_image = MIMEImage(image_file.read())
     image_file.close()
-
-    # Specify the  ID according to the img src in the HTML part
     forecast_image.add_header('Content-ID', '<weatherforecast>')
     message.attach(forecast_image)
     
